@@ -20,17 +20,14 @@ def load_maze(filepath):
         agent1_position  : (int, int) - starting position of Player 1 (was 'X')
         agent2_position  : (int, int) - starting position of Player 2 (was 'Y')
         prize_positions  : dict[(int, int), int] - mapping of (row, col) to prize value
-        max_turns        : int - read from the first line of the file (see format below)
 
     File format:
-        Line 1 : max_turns (integer)
-        Line 2+: maze rows, one per line
+        Line 1+: maze rows, one per line
     """
     with open(filepath, 'r') as f:
         lines = [line.rstrip('\n') for line in f.readlines()]
 
-    max_turns = int(lines[0])
-    raw_rows = lines[1:]
+    raw_rows = lines[0:]
 
     agent1_position = None
     agent2_position = None
@@ -54,7 +51,7 @@ def load_maze(filepath):
         processed_rows.append(processed_row)
 
     maze = tuple(processed_rows)
-    return maze, agent1_position, agent2_position, prize_positions, max_turns
+    return maze, agent1_position, agent2_position, prize_positions
 
 
 def _apply_move(maze, position, move):
@@ -102,7 +99,7 @@ def _update_maze(maze, position):
     return maze[:row] + (updated_row,) + maze[row + 1:]
 
 
-def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_positions, max_turns):
+def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_positions, max_turns, on_turn=None):
     """
     Runs a full game between two agents.
 
@@ -117,6 +114,9 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
         agent2_position      : (int, int) - starting position of Agent 2
         prize_positions      : dict[(int, int), int] - initial prize locations and values
         max_turns            : int - maximum total number of turns
+        on_turn              : callable(state) | None - optional callback invoked after
+                               each turn with the current game state dict. Return True
+                               to terminate the game early.
 
     Returns:
         dict with keys:
@@ -164,6 +164,22 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
             pos2 = new_pos
 
         turns_played += 1
+
+        # Invoke viewer callback if provided
+        if on_turn is not None:
+            state = {
+                'maze':           maze,
+                'pos1':           pos1,
+                'pos2':           pos2,
+                'score1':         score1,
+                'score2':         score2,
+                'turn':           turns_played,
+                'is_agent1_turn': is_agent1,
+                'name1':          agent1.__class__.__name__,
+                'name2':          agent2.__class__.__name__,
+            }
+            if on_turn(state):
+                break
 
         # Check end condition
         if not prize_positions:
