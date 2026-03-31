@@ -11,5 +11,8 @@ class BaseViewer:
     def on_turn(self, state) -> bool:
         raise NotImplementedError
 
+    def on_game_over(self, state):
+        pass
+
     def close(self):
         pass

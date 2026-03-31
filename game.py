@@ -1,3 +1,5 @@
+import time
+import os
 from move import Move
 
 
@@ -11,9 +13,9 @@ MOVE_DELTAS = {
 }
 
 
-def load_maze(filepath):
+def load_maze(filepath_or_name):
     """
-    Loads a maze from a text file.
+    Loads a maze from a text file (default: 'mazes/<name>.txt').
 
     Returns:
         maze             : tuple[str, ...] - maze with 'X' and 'Y' replaced by '.'
@@ -24,7 +26,11 @@ def load_maze(filepath):
     File format:
         Line 1+: maze rows, one per line
     """
-    with open(filepath, 'r') as f:
+    if not os.path.exists(filepath_or_name):
+        name = os.path.splitext(os.path.basename(filepath_or_name))[0]
+        filepath_or_name = os.path.join('mazes', name + '.txt')
+
+    with open(filepath_or_name, 'r') as f:
         lines = [line.rstrip('\n') for line in f.readlines()]
 
     raw_rows = lines[0:]
@@ -122,15 +128,19 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
         dict with keys:
             'score1'      : int - total score of Agent 1
             'score2'      : int - total score of Agent 2
+            'move_time1'   : float - total time spent by Agent 1 in __init__() and next_move() calls
+            'move_time2'   : float - total time spent by Agent 2 in __init__() and next_move() calls
             'turns_played': int - total number of turns played
-            'result'      : str - 'agent1', 'agent2', or 'draw'
     """
     score1 = 0
     score2 = 0
+    move_time1 = 0
+    move_time2 = 0
     pos1 = agent1_position
     pos2 = agent2_position
     prize_positions = dict(prize_positions)  # work on a local copy
     turns_played = 0
+    interrupted = False
 
     for turn in range(max_turns):
         # Determine which agent acts this turn
@@ -143,9 +153,16 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
             active_pos = pos2
             is_agent1 = False
 
-        # Get and apply move
+        # Get move
+        t0 = time.perf_counter()
         move = _safe_next_move(active_agent, maze, prize_positions, active_pos,
-                               pos2 if is_agent1 else pos1)
+                              pos2 if is_agent1 else pos1)
+        elapsed = time.perf_counter() - t0
+        if is_agent1:
+            move_time1 += elapsed
+        else:
+            move_time2 += elapsed
+        # Apply move
         new_pos = _apply_move(maze, active_pos, move)
 
         # Collect prize if present
@@ -173,17 +190,34 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
                 'pos2':           pos2,
                 'score1':         score1,
                 'score2':         score2,
+                'move_time1':     move_time1,
+                'move_time2':     move_time2,
                 'turn':           turns_played,
                 'is_agent1_turn': is_agent1,
                 'name1':          agent1.__class__.__name__,
                 'name2':          agent2.__class__.__name__,
             }
             if on_turn(state):
+                interrupted = True
                 break
 
         # Check end condition
         if not prize_positions:
             break
+
+    # Game over, invoke viewer callback one last time with final state
+    if not interrupted and on_turn is not None:
+        on_turn_obj = on_turn.__self__ if hasattr(on_turn, '__self__') else None
+        if on_turn_obj is not None and hasattr(on_turn_obj, 'on_game_over'):
+            state = {
+                'maze': maze, 'pos1': pos1, 'pos2': pos2,
+                'score1': score1, 'score2': score2,
+                'move_time1': move_time1, 'move_time2': move_time2,
+                'turn': turns_played, 'is_agent1_turn': turns_played % 2 == 0,
+                'name1': agent1.__class__.__name__,
+                'name2': agent2.__class__.__name__,
+            }
+            on_turn_obj.on_game_over(state)
 
     # Determine result
     if score1 > score2:
@@ -196,8 +230,9 @@ def run_game(agent1, agent2, maze, agent1_position, agent2_position, prize_posit
     return {
         'score1':       score1,
         'score2':       score2,
+        'move_time1':   move_time1,
+        'move_time2':   move_time2,
         'turns_played': turns_played,
-        'result':       result,
     }
 
 
@@ -207,8 +242,14 @@ def init_agent(agent_class, maze, prize_positions, agent_position, opponent_posi
     If the __init__ raises an exception, returns a DummyAgent instance instead,
     so the game can proceed without interruption.
     """
+    
     try:
-        return agent_class(maze, prize_positions, agent_position, opponent_position, max_turns)
+        t0 = time.perf_counter()
+        agent = agent_class(maze, prize_positions, agent_position, opponent_position, max_turns)
+        init_time = time.perf_counter() - t0
     except Exception:
+        t0 = time.perf_counter()
         from agents.dummy_agent import DummyAgent
-        return DummyAgent(maze, prize_positions, agent_position, opponent_position, max_turns)
+        agent = DummyAgent(maze, prize_positions, agent_position, opponent_position, max_turns)
+        init_time = time.perf_counter() - t0
+    return agent, init_time

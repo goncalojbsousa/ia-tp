@@ -10,6 +10,8 @@ class ColorViewer(BaseViewer):
         pos2           = state['pos2']
         score1         = state['score1']
         score2         = state['score2']
+        move_time1 = state.get('move_time1', 0.0)
+        move_time2 = state.get('move_time2', 0.0)
         turn           = state['turn']
         is_agent1_turn = state['is_agent1_turn']
         name1          = state['name1']
@@ -17,6 +19,7 @@ class ColorViewer(BaseViewer):
 
         player = name1 if is_agent1_turn else name2
         print(f"\n--- Turn {turn} | Player: {player} | {name1}: {score1} pts | {name2}: {score2} pts ---")
+        print(f"Move Time: {name1}: {move_time1:13.7f} ms | {name2}: {move_time2:13.7f} ms")
 
         for row_idx, row in enumerate(maze):
             line = ''
