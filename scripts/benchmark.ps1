@@ -96,18 +96,27 @@ foreach ($maze in $Mazes) {
                 # - "Agent 1 - name : 12 pts"
                 $score1Match = [regex]::Match($output, 'Agent 1(?:\s*-\s*[^\r\n:]+|\s*\([^\)]+\))\s*:\s+(\d+)')
                 $score2Match = [regex]::Match($output, 'Agent 2(?:\s*-\s*[^\r\n:]+|\s*\([^\)]+\))\s*:\s+(\d+)')
+                $time1Match = [regex]::Match($output, 'Time agent 1:\s+([0-9]+(?:\.[0-9]+)?)\s+ms')
+                $time2Match = [regex]::Match($output, 'Time agent 2:\s+([0-9]+(?:\.[0-9]+)?)\s+ms')
                 if (-not $score1Match.Success -or -not $score2Match.Success) {
                     throw "Could not parse scores from output.`n$output"
+                }
+                if (-not $time1Match.Success -or -not $time2Match.Success) {
+                    throw "Could not parse times from output.`n$output"
                 }
 
                 $s1 = [int]$score1Match.Groups[1].Value
                 $s2 = [int]$score2Match.Groups[1].Value
+                $t1 = [double]$time1Match.Groups[1].Value
+                $t2 = [double]$time2Match.Groups[1].Value
                 $winner = [regex]::Match($output, 'Winner(?: by points)?: Agent ([12])').Groups[1].Value
                 $isDraw = $output -match 'Result(?: by points)?: Draw'
 
                 if ($order -eq 'group-first') {
                     $groupScore = $s1
                     $oppScore = $s2
+                    $groupTimeMs = $t1
+                    $oppTimeMs = $t2
                     if ($winner -eq '1') { $outcome = 'W' }
                     elseif ($winner -eq '2') { $outcome = 'L' }
                     elseif ($isDraw) { $outcome = 'D' }
@@ -116,6 +125,8 @@ foreach ($maze in $Mazes) {
                 else {
                     $groupScore = $s2
                     $oppScore = $s1
+                    $groupTimeMs = $t2
+                    $oppTimeMs = $t1
                     if ($winner -eq '2') { $outcome = 'W' }
                     elseif ($winner -eq '1') { $outcome = 'L' }
                     elseif ($isDraw) { $outcome = 'D' }
@@ -129,7 +140,10 @@ foreach ($maze in $Mazes) {
                     Rep = $i
                     GroupScore = $groupScore
                     OppScore = $oppScore
+                    GroupTimeMs = $groupTimeMs
+                    OppTimeMs = $oppTimeMs
                     Diff = $groupScore - $oppScore
+                    DiffMs = $groupTimeMs - $oppTimeMs
                     Outcome = $outcome
                 }
             }
@@ -155,6 +169,9 @@ $summary = $results |
             AvgGroup = [math]::Round((($rows | Measure-Object GroupScore -Average).Average), 2)
             AvgOpp = [math]::Round((($rows | Measure-Object OppScore -Average).Average), 2)
             AvgDiff = [math]::Round((($rows | Measure-Object Diff -Average).Average), 2)
+            AvgGroupMs = [math]::Round((($rows | Measure-Object GroupTimeMs -Average).Average), 3)
+            AvgOppMs = [math]::Round((($rows | Measure-Object OppTimeMs -Average).Average), 3)
+            AvgDiffMs = [math]::Round((($rows | Measure-Object DiffMs -Average).Average), 3)
         }
     } |
     Sort-Object Maze, Opponent
@@ -169,6 +186,9 @@ $total = [pscustomobject]@{
     AvgGroup = [math]::Round((($results | Measure-Object GroupScore -Average).Average), 2)
     AvgOpp = [math]::Round((($results | Measure-Object OppScore -Average).Average), 2)
     AvgDiff = [math]::Round((($results | Measure-Object Diff -Average).Average), 2)
+    AvgGroupMs = [math]::Round((($results | Measure-Object GroupTimeMs -Average).Average), 3)
+    AvgOppMs = [math]::Round((($results | Measure-Object OppTimeMs -Average).Average), 3)
+    AvgDiffMs = [math]::Round((($results | Measure-Object DiffMs -Average).Average), 3)
 }
 
 if ($Json) {
@@ -177,8 +197,10 @@ if ($Json) {
 else {
     ''
     '=== SUMMARY ==='
-    $summary | Format-Table -AutoSize | Out-String
+    $summary |
+        Format-Table -AutoSize -Property Maze, Opponent, Games, Wins, Draws, Losses, AvgGroup, AvgOpp, AvgDiff, AvgGroupMs, AvgOppMs, AvgDiffMs |
+        Out-String -Width 220
 
     '=== TOTAL ==='
-    $total | Format-List | Out-String
+    $total | Format-List | Out-String -Width 220
 }
