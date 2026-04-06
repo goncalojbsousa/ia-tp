@@ -1,7 +1,7 @@
 param(
     [string]$Agent = 'group07',
     [int]$Reps = 5,
-    [string[]]$Mazes = @('mazes/maze01.txt', 'mazes/maze02.txt', 'mazes/maze03.txt'),
+    [string[]]$Mazes = @(),
     [int]$DefaultMaxTurns = 250,
     [switch]$IncludeGroupAgents,
     [switch]$Json
@@ -11,6 +11,16 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path 'run.py')) {
     throw 'Run this script from the project root (folder containing run.py).'
+}
+
+if (-not $Mazes -or $Mazes.Count -eq 0) {
+    $Mazes = Get-ChildItem .\mazes\*.txt |
+        Sort-Object Name |
+        ForEach-Object { "mazes/$($_.Name)" }
+
+    if (-not $Mazes -or $Mazes.Count -eq 0) {
+        throw 'No maze files found in mazes/.'
+    }
 }
 
 $turnsByMaze = @{
@@ -59,7 +69,9 @@ foreach ($maze in $Mazes) {
     $maxTurns = if ($turnsByMaze.ContainsKey($maze)) { $turnsByMaze[$maze] } else { $DefaultMaxTurns }
 
     foreach ($opp in $opponents) {
+        $skipOpponent = $false
         foreach ($order in @('group-first', 'group-second')) {
+            if ($skipOpponent) { break }
             for ($i = 1; $i -le $Reps; $i++) {
                 if ($order -eq 'group-first') {
                     $a1 = $Agent
@@ -73,16 +85,25 @@ foreach ($maze in $Mazes) {
                 Write-Host "Running: py run.py $maze $maxTurns $a1 $a2"
                 $output = (Invoke-Expression "py run.py $maze $maxTurns $a1 $a2") | Out-String
 
-                $score1Match = [regex]::Match($output, 'Agent 1 \([^\)]+\):\s+(\d+)')
-                $score2Match = [regex]::Match($output, 'Agent 2 \([^\)]+\):\s+(\d+)')
+                if ($output -match 'could not be loaded\.' -or $output -match 'could not find .* in ''agents/'' folder\.') {
+                    Write-Warning "Skipping opponent '$opp' on maze '$maze': agent could not be loaded."
+                    $skipOpponent = $true
+                    break
+                }
+
+                # Support both output formats:
+                # - "Agent 1 (name): 12"
+                # - "Agent 1 - name : 12 pts"
+                $score1Match = [regex]::Match($output, 'Agent 1(?:\s*-\s*[^\r\n:]+|\s*\([^\)]+\))\s*:\s+(\d+)')
+                $score2Match = [regex]::Match($output, 'Agent 2(?:\s*-\s*[^\r\n:]+|\s*\([^\)]+\))\s*:\s+(\d+)')
                 if (-not $score1Match.Success -or -not $score2Match.Success) {
                     throw "Could not parse scores from output.`n$output"
                 }
 
                 $s1 = [int]$score1Match.Groups[1].Value
                 $s2 = [int]$score2Match.Groups[1].Value
-                $winner = [regex]::Match($output, 'Winner: Agent ([12])').Groups[1].Value
-                $isDraw = $output -match 'Result: Draw'
+                $winner = [regex]::Match($output, 'Winner(?: by points)?: Agent ([12])').Groups[1].Value
+                $isDraw = $output -match 'Result(?: by points)?: Draw'
 
                 if ($order -eq 'group-first') {
                     $groupScore = $s1
@@ -114,6 +135,10 @@ foreach ($maze in $Mazes) {
             }
         }
     }
+}
+
+if ($results.Count -eq 0) {
+    throw 'No valid benchmark results were produced. Check agent names and loading errors.'
 }
 
 $summary = $results |
